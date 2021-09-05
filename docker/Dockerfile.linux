@@ -1,0 +1,82 @@
+########################## BUILD IMAGE  ##########################
+FROM debian:bullseye-slim as build
+
+ARG ICON_NAME
+ENV ICON_NAME $ICON_NAME
+
+## System Setup
+RUN apt-get -y update; apt-get -y upgrade
+# fundamental packages
+RUN apt-get -y install build-essential curl git; apt-get -y autoremove
+# Download Rustup installer
+RUN curl https://sh.rustup.rs -o /usr/bin/rustup-install
+RUN chmod +x /usr/bin/rustup-install
+
+## Rust Setup
+RUN useradd -ms /bin/bash rustacean
+USER rustacean
+# Install Rustup
+RUN rustup-install -y
+# Install Rust
+RUN /home/rustacean/.cargo/bin/rustup update
+
+## Dependencies Setup
+USER root
+RUN apt-get -y install libgtk-3-dev
+
+## Build project
+USER rustacean
+
+# Grab dependencies
+RUN /home/rustacean/.cargo/bin/cargo new --bin /home/rustacean/app
+WORKDIR /home/rustacean/app
+COPY --chown=rustacean:rustacean ./assets ./assets
+COPY --chown=rustacean:rustacean ./.cargo ./.cargo/
+COPY --chown=rustacean:rustacean ./Cargo.* ./
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true /home/rustacean/.cargo/bin/cargo build --release
+
+# Copies the complete project
+# To avoid copying unneeded files, use .dockerignore
+COPY --chown=rustacean:rustacean ./src ./src
+
+# Update the icon file with the right filepath
+RUN sed -i "s/\${ICON_NAME}/${ICON_NAME}/" ./src/icon.rc
+
+# Update the icon path for inclusion in binary
+RUN sed -i "s/\${ICON_NAME}/${ICON_NAME}/" ./src/main.rs
+
+# Make sure we actually build the project
+RUN touch ./src/main.rs
+
+# Builds again, this time it will just be your actual source files
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true /home/rustacean/.cargo/bin/cargo build --release
+
+######################## PACKAGE IMAGE  ########################
+
+FROM debian:buster-slim
+
+ARG APP_NAME
+ARG FOLDER_NAME
+ENV APP_NAME $APP_NAME
+ENV FOLDER_NAME $FOLDER_NAME
+
+# Set the default shell to bash for brace expansion
+SHELL ["/bin/bash", "-c"]
+
+# Install zip to package the final release
+RUN apt-get update && apt-get install zip -y
+
+RUN useradd -ms /bin/bash rustacean
+USER rustacean
+
+RUN mkdir /home/rustacean/${FOLDER_NAME}
+WORKDIR /home/rustacean/${FOLDER_NAME}
+
+# Copy all the files we need for the release
+COPY --chown=rustacean:rustacean ./styles ./styles
+COPY --from=build --chown=rustacean:rustacean /home/rustacean/app/assets ./assets
+COPY --from=build --chown=rustacean:rustacean /home/rustacean/app/target/release/${APP_NAME} ./${APP_NAME}
+
+# Package the files into a zip archive
+WORKDIR /home/rustacean
+RUN zip -r ${FOLDER_NAME}.zip ${FOLDER_NAME}

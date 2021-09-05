@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
+print_error() {
+	printf "\e[91m%b\e[0m" "$1"
+}
+
+vgtk__init_windows() {
+	rm -f $SCRIPT_DIR/../docker-compose.yml
+	rm -f $SCRIPT_DIR/../Dockerfile
+
+	ln -s $SCRIPT_DIR/../docker/docker-compose.win.yml $SCRIPT_DIR/../docker-compose.yml
+	ln -s $SCRIPT_DIR/../docker/Dockerfile.win $SCRIPT_DIR/../Dockerfile
+}
+
+vgtk__init_linux() {
+	rm -f $SCRIPT_DIR/../docker-compose.yml
+	rm -f $SCRIPT_DIR/../Dockerfile
+
+	ln -s $SCRIPT_DIR/../docker/docker-compose.linux.yml $SCRIPT_DIR/../docker-compose.yml
+	ln -s $SCRIPT_DIR/../docker/Dockerfile.linux $SCRIPT_DIR/../Dockerfile
+}
+
+vgtk__init() {
+	read -p 'What is the app name: ' app_name
+	read -p "What is the icon name (defaults to ${app_name}.ico): " icon_name
+	default_icon_name="${app_name}.ico"
+	icon_name=${icon_name:-$default_icon_name}	
+	read -p "What is the folder name (defaults to ${app_name}): " folder_name
+	folder_name=${folder_name:-$app_name}
+
+	sed -i "s/\${APP_NAME}/${app_name}/" $SCRIPT_DIR/../docker/docker-compose.linux.yml
+	sed -i "s/\${ICON_NAME}/${icon_name}/" $SCRIPT_DIR/../docker/docker-compose.linux.yml
+	sed -i "s/\${FOLDER_NAME}/${folder_name}/" $SCRIPT_DIR/../docker/docker-compose.linux.yml
+
+	sed -i "s/\${APP_NAME}/${app_name}/" $SCRIPT_DIR/../docker/docker-compose.win.yml
+	sed -i "s/\${ICON_NAME}/${icon_name}/" $SCRIPT_DIR/../docker/docker-compose.win.yml
+	sed -i "s/\${FOLDER_NAME}/${folder_name}/" $SCRIPT_DIR/../docker/docker-compose.win.yml
+
+	sed -i "s/\${APP_NAME}/${app_name}/" $SCRIPT_DIR/app.info
+	sed -i "s/\${ICON_NAME}/${icon_name}/" $SCRIPT_DIR/app.info
+	sed -i "s/\${FOLDER_NAME}/${folder_name}/" $SCRIPT_DIR/app.info
+}
+
+vgtk__compile() {
+	current_dir="$(pwd)"
+	cd $SCRIPT_DIR/..
+
+	docker-compose build "$@"
+	cd "$current_dir"
+}
+
+vgtk__compile_linux() {
+	vgtk__init_linux
+	vgtk__compile "$@"
+}
+
+vgtk__compile_windows() {
+	vgtk__init_windows
+	vgtk__compile "$@"
+}
+
+vgtk__run() {
+	source $SCRIPT_DIR/app.info
+	vgtk__package
+	unzip ${FOLDER_NAME}.zip
+	./${FOLDER_NAME}/${APP_NAME}
+}
+
+vgtk__run_linux() {
+	vgtk__init_linux
+	vgtk__run
+}
+
+vgtk__run_windows() {
+	vgtk__init_windows
+	vgtk__run
+}
+
+vgtk__rerun() {
+	vgtk__compile "$@"
+	vgtk__run
+}
+
+vgtk__rerun_linux() {
+	vgtk__init_linux
+	vgtk__rerun "$@"
+}
+
+vgtk__rerun_windows() {
+	vgtk__init_windows
+	vgtk__rerun "$@"
+}
+
+vgtk__package() {
+	local platform="";
+	if [ -n "$1" ]; then
+		platform="$1_";
+	fi
+
+	echo $platform
+	return
+
+	source $SCRIPT_DIR/app.info
+	docker run --name vgtk ${APP_NAME}_${platform}app:latest /bin/true
+	docker cp vgtk:/home/rustacean/${FOLDER_NAME}.zip .
+	docker rm vgtk
+}
+
+vgtk__package_linux() {
+	vgtk__init_linux
+	vgtk__package "linux"
+}
+
+vgtk__package_windows() {
+	vgtk__init_windows
+	vgtk__package "windows"
+}
+
+vgtk__repackage() {
+	vgtk__compile
+	vgtk__package "$@"
+}
+
+vgtk__repackage_linux() {
+	vgtk__init_linux
+	vgtk__repackage "linux"
+}
+
+vgtk__repackage_windows() {
+	vgtk__init_windows
+	vgtk__repackage "windows"
+}
+
+vgtk__clean_repackage() {
+	vgtk__compile --no-cache
+	vgtk__package
+}
+
+vgtk__clean_repackage_linux() {
+	vgtk__init_linux
+	vgtk__clean_repackage
+}
+
+vgtk__clean_repackage_windows() {
+	vgtk__init_windows
+	vgtk__clean_repackage
+}
+
+vgtk__clean() {
+	source $SCRIPT_DIR/app.info
+	rm -rf ${FOLDER_NAME}.zip ${FOLDER_NAME}
+}
+
+cmdname=$1; shift
+if declare -f "vgtk__$cmdname" >/dev/null 2>&1; then
+	"vgtk__$cmdname" "$@"
+else
+	print_error "Subcommand $cmdname is not defined";
+	exit 1;
+fi

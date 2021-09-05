@@ -1,0 +1,13 @@
+[package]
+name = "{{project-name}}"
+version = "0.1.0"
+authors = ["{{authors}}"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+appres = { git = "https://github.com/PRust-Projects/appres", branch = "main" }
+pretty_env_logger = "0.4"
+vgtk = { git = "https://github.com/bodil/vgtk" }
+vgtk_components = { git = "https://github.com/PRust-Projects/vgtk_components", branch = "main" }

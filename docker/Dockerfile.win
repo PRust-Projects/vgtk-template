@@ -1,0 +1,106 @@
+########################## BUILD IMAGE  ##########################
+FROM fedora:latest as build
+
+ARG ICON_NAME
+ENV ICON_NAME $ICON_NAME
+
+## System Setup
+RUN dnf -y update; dnf clean all
+# fundamental packages 
+RUN dnf -y install file gcc make man sudo tar; dnf clean all
+# Download Rustup installer
+RUN curl https://sh.rustup.rs -o /usr/bin/rustup-install
+RUN chmod +x /usr/bin/rustup-install
+
+## Rust Setup
+RUN useradd -ms /bin/bash rustacean
+USER rustacean
+# Install Rustup
+RUN rustup-install -y
+# Install Rust
+RUN /home/rustacean/.cargo/bin/rustup update
+RUN /home/rustacean/.cargo/bin/rustup target add x86_64-pc-windows-gnu
+
+## Dependencies Setup
+USER root
+RUN dnf -y install mingw64-gcc
+RUN dnf -y install mingw64-freetype freetype freetype-devel
+RUN dnf -y install mingw64-cairo mingw64-cairo-static cairo cairo-devel
+RUN dnf -y install mingw64-harfbuzz harfbuzz harfbuzz-devel
+RUN dnf -y install mingw64-pango pango pango-devel
+RUN dnf -y install mingw64-poppler poppler poppler-devel
+RUN dnf -y install mingw64-gtk3 gtk3 gtk3-devel
+RUN dnf -y install mingw64-glib2-static glib2 glib2-devel
+RUN dnf -y install atk atk-devel 
+RUN dnf -y install mingw64-winpthreads mingw64-winpthreads-static
+
+## Build project
+USER rustacean
+ENV PKG_CONFIG_ALLOW_CROSS=1
+ENV MINGW_PREFIX=/usr/x86_64-w64-mingw32/sys-root/mingw/
+ENV PKG_CONFIG_PATH=$MINGW_PREFIX/lib/pkgconfig
+
+# Grab dependencies
+RUN /home/rustacean/.cargo/bin/cargo new --bin /home/rustacean/app
+WORKDIR /home/rustacean/app
+COPY --chown=rustacean:rustacean ./assets ./assets
+COPY --chown=rustacean:rustacean ./.cargo ./.cargo/
+COPY --chown=rustacean:rustacean ./Cargo.* ./
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true /home/rustacean/.cargo/bin/cargo build --target=x86_64-pc-windows-gnu --release
+
+# Copies the complete project
+# To avoid copying unneeded files, use .dockerignore
+COPY --chown=rustacean:rustacean ./src ./src
+COPY --chown=rustacean:rustacean ./build_win.rs ./build.rs
+
+# Update the icon file with the right filepath
+RUN sed -i "s/\${ICON_NAME}/${ICON_NAME}/" ./src/icon.rc
+
+# Update the icon path for inclusion in binary
+RUN sed -i "s/\${ICON_NAME}/${ICON_NAME}/" ./src/main.rs
+
+# Make sure we actually build the project
+RUN touch build.rs
+
+# Builds again, this time it will just be your actual source files
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true /home/rustacean/.cargo/bin/cargo build --target=x86_64-pc-windows-gnu --release
+
+######################## PACKAGE IMAGE  ########################
+
+FROM debian:buster-slim
+
+ARG APP_NAME
+ARG FOLDER_NAME
+ENV APP_NAME $APP_NAME
+ENV FOLDER_NAME $FOLDER_NAME
+
+# Set the default shell to bash for brace expansion
+SHELL ["/bin/bash", "-c"]
+
+# Install zip to package the final release
+RUN apt-get update && apt-get install zip -y
+
+RUN useradd -ms /bin/bash rustacean
+USER rustacean
+
+ENV MINGW_PREFIX=/usr/x86_64-w64-mingw32/sys-root/mingw
+
+RUN mkdir /home/rustacean/${FOLDER_NAME}
+RUN mkdir -p /home/rustacean/${FOLDER_NAME}/share/glib-2.0/schemas
+WORKDIR /home/rustacean/${FOLDER_NAME}
+
+# Copy all the files we need for the release
+COPY --chown=rustacean:rustacean ./styles ./styles
+COPY --from=build --chown=rustacean:rustacean /home/rustacean/app/assets ./assets
+COPY --from=build --chown=rustacean:rustacean /home/rustacean/app/target/x86_64-pc-windows-gnu/release/${APP_NAME}.exe ./${APP_NAME}.exe
+COPY --from=build --chown=rustacean:rustacean $MINGW_PREFIX/bin/*.dll ./
+COPY --from=build --chown=rustacean:rustacean $MINGW_PREFIX/share/glib-2.0/schemas/gschemas.compiled ./share/glib-2.0/schemas/gschemas.compiled
+COPY --from=build --chown=rustacean:rustacean $MINGW_PREFIX/share/icons ./share/icons
+
+# Remove extra icons
+RUN rm -r /home/rustacean/${FOLDER_NAME}/share/icons/Adwaita/{8x8,22x22,256x256,512x512,scalable-up-to-32}
+RUN rm -r /home/rustacean/${FOLDER_NAME}/share/icons/Adwaita/{16x16,24x24,32x32,48x48,64x64,96x96,scalable}/{apps,categories,devices,emblems,emotes,legacy,mimetypes,places,status}
+
+# Package the files into a zip archive
+WORKDIR /home/rustacean
+RUN zip -r ${FOLDER_NAME}.zip ${FOLDER_NAME}
