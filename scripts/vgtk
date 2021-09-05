@@ -62,49 +62,48 @@ vgtk__compile_windows() {
 }
 
 vgtk__run() {
+	local platform="";
+	if [ -n "$1" ]; then
+		platform="_$1";
+	fi
+
 	source $SCRIPT_DIR/app.info
-	vgtk__package
-	unzip ${FOLDER_NAME}.zip
+	vgtk__package $1
+	unzip ${FOLDER_NAME}${platform}.zip
 	./${FOLDER_NAME}/${APP_NAME}
 }
 
 vgtk__run_linux() {
 	vgtk__init_linux
-	vgtk__run
+	vgtk__run "linux"
 }
 
 vgtk__run_windows() {
 	vgtk__init_windows
-	vgtk__run
-}
-
-vgtk__rerun() {
-	vgtk__compile "$@"
-	vgtk__run
+	vgtk__run "windows"
 }
 
 vgtk__rerun_linux() {
 	vgtk__init_linux
-	vgtk__rerun "$@"
+	vgtk__compile "$@"
+	vgtk__run "linux"
 }
 
 vgtk__rerun_windows() {
 	vgtk__init_windows
-	vgtk__rerun "$@"
+	vgtk__compile "$@"
+	vgtk__run "windows"
 }
 
 vgtk__package() {
 	local platform="";
 	if [ -n "$1" ]; then
-		platform="$1_";
+		platform="_$1";
 	fi
 
-	echo $platform
-	return
-
 	source $SCRIPT_DIR/app.info
-	docker run --name vgtk ${APP_NAME}_${platform}app:latest /bin/true
-	docker cp vgtk:/home/rustacean/${FOLDER_NAME}.zip .
+	docker run --name vgtk ${APP_NAME}_app:latest /bin/true
+	docker cp vgtk:/home/rustacean/${FOLDER_NAME}.zip ./${FOLDER_NAME}${platform}.zip
 	docker rm vgtk
 }
 
@@ -118,39 +117,33 @@ vgtk__package_windows() {
 	vgtk__package "windows"
 }
 
-vgtk__repackage() {
-	vgtk__compile
-	vgtk__package "$@"
-}
-
 vgtk__repackage_linux() {
 	vgtk__init_linux
-	vgtk__repackage "linux"
+	vgtk__compile "$@"
+	vgtk__package "linux"
 }
 
 vgtk__repackage_windows() {
 	vgtk__init_windows
-	vgtk__repackage "windows"
-}
-
-vgtk__clean_repackage() {
-	vgtk__compile --no-cache
-	vgtk__package
+	vgtk__compile "$@"
+	vgtk__package "windows"
 }
 
 vgtk__clean_repackage_linux() {
 	vgtk__init_linux
-	vgtk__clean_repackage
+	vgtk__compile --no-cache "$@"
+	vgtk__package "linux"
 }
 
 vgtk__clean_repackage_windows() {
 	vgtk__init_windows
-	vgtk__clean_repackage
+	vgtk__compile --no-cache "$@"
+	vgtk__package "windows"
 }
 
 vgtk__clean() {
 	source $SCRIPT_DIR/app.info
-	rm -rf ${FOLDER_NAME}.zip ${FOLDER_NAME}
+	rm -rf ${FOLDER_NAME}*.zip ${FOLDER_NAME}
 }
 
 cmdname=$1; shift
